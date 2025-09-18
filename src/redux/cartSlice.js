@@ -32,7 +32,13 @@ export const fetchCart = createAsyncThunk(
       });
 
       if (!cartResponse.ok) {
-        throw new Error(`HTTP error! status: ${cartResponse.status}`);
+        if (cartResponse.status === 400) {
+          // Cart doesn't exist, return empty cart
+          return [];
+        }
+        throw new Error(
+          `HTTP error fetching cart for user ${userId}! status: ${cartResponse.status}`
+        );
       }
 
       const cartData = await cartResponse.json();
@@ -87,10 +93,29 @@ export const fetchCart = createAsyncThunk(
 
       return itemsWithDetails;
     } catch (error) {
+      console.error(`Error in fetchCart for user ${userId}:`, error);
       return rejectWithValue(error.message);
     }
   }
 );
+
+// Create a new cart for the user
+const createCart = async (userId, token) => {
+  const response = await fetch(`${baseUrl}/api/cart`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ userId, items: [] }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create cart: ${response.status}`);
+  }
+
+  return response.json();
+};
 
 // Add item to cart
 export const addItemToCart = createAsyncThunk(
@@ -100,6 +125,7 @@ export const addItemToCart = createAsyncThunk(
     { rejectWithValue }
   ) => {
     try {
+      // Attempt to add item to cart
       const response = await fetch(
         `${baseUrl}/api/cart/${userId}/items?productId=${productId}&quantity=${quantity}`,
         {
@@ -112,58 +138,102 @@ export const addItemToCart = createAsyncThunk(
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        if (response.status === 400) {
+          // Cart might not exist, try creating it
+          await createCart(userId, token);
+          // Retry adding the item
+          const retryResponse = await fetch(
+            `${baseUrl}/api/cart/${userId}/items?productId=${productId}&quantity=${quantity}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+
+          if (!retryResponse.ok) {
+            throw new Error(
+              `HTTP error adding item to cart after creation! status: ${retryResponse.status}`
+            );
+          }
+
+          const retryData = await retryResponse.json();
+          return await buildCartItemResponse(
+            retryData,
+            productId,
+            quantity,
+            productData
+          );
+        }
+        throw new Error(
+          `HTTP error adding item to cart! status: ${response.status}`
+        );
       }
 
       const data = await response.json();
-      let fullProductData = productData;
-      if (!fullProductData) {
-        try {
-          const productDetails = await fetchProductDetails(productId);
-          fullProductData = {
-            _id: productId,
-            name: productDetails.name,
-            description: productDetails.description,
-            price: productDetails.price,
-            image: productDetails.imageUrls?.[0] || "/placeholder-image.jpg",
-            images: productDetails.imageUrls || [],
-            availableQuantity: productDetails.availableQuantity,
-            discount: productDetails.discount || 0,
-            colors: productDetails.color,
-            sku: productDetails.sku,
-            categoryIds: productDetails.categoryIds,
-            tagIds: productDetails.tagIds,
-            originalPrice: productDetails.discount
-              ? productDetails.price + productDetails.discount
-              : null,
-          };
-        } catch (error) {
-          console.error(
-            `Failed to fetch product details for ${productId}:`,
-            error
-          );
-          fullProductData = {
-            _id: productId,
-            name: "Unknown Product",
-            price: 0,
-            image: "/placeholder-image.jpg",
-          };
-        }
-      }
-
-      return {
-        apiResponse: data,
-        productData: {
-          ...fullProductData,
-          quantity,
-          cartItemId: data.itemId,
-        },
-      };
+      return await buildCartItemResponse(
+        data,
+        productId,
+        quantity,
+        productData
+      );
     } catch (error) {
+      console.error(`Error in addItemToCart for user ${userId}:`, error);
       return rejectWithValue(error.message);
     }
   }
 );
+
+// Helper function to build cart item response
+const buildCartItemResponse = async (
+  data,
+  productId,
+  quantity,
+  productData
+) => {
+  let fullProductData = productData;
+  if (!fullProductData) {
+    try {
+      const productDetails = await fetchProductDetails(productId);
+      fullProductData = {
+        _id: productId,
+        name: productDetails.name,
+        description: productDetails.description,
+        price: productDetails.price,
+        image: productDetails.imageUrls?.[0] || "/placeholder-image.jpg",
+        images: productDetails.imageUrls || [],
+        availableQuantity: productDetails.availableQuantity,
+        discount: productDetails.discount || 0,
+        colors: productDetails.color,
+        sku: productDetails.sku,
+        categoryIds: productDetails.categoryIds,
+        tagIds: productDetails.tagIds,
+        originalPrice: productDetails.discount
+          ? productDetails.price + productDetails.discount
+          : null,
+      };
+    } catch (error) {
+      console.error(`Failed to fetch product details for ${productId}:`, error);
+      fullProductData = {
+        _id: productId,
+        name: "Unknown Product",
+        price: 0,
+        image: "/placeholder-image.jpg",
+      };
+    }
+  }
+
+  return {
+    apiResponse: data,
+    productData: {
+      ...fullProductData,
+      quantity,
+      cartItemId: data.itemId,
+    },
+  };
+};
 
 // Update cart item quantity
 export const updateCartItemQuantity = createAsyncThunk(
@@ -182,12 +252,18 @@ export const updateCartItemQuantity = createAsyncThunk(
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(
+          `HTTP error updating item quantity! status: ${response.status}`
+        );
       }
 
       const data = await response.json();
       return { itemId, quantity, apiResponse: data };
     } catch (error) {
+      console.error(
+        `Error in updateCartItemQuantity for user ${userId}, item ${itemId}:`,
+        error
+      );
       return rejectWithValue(error.message);
     }
   }
@@ -210,7 +286,9 @@ export const removeCartItem = createAsyncThunk(
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(
+          `HTTP error removing item from cart! status: ${response.status}`
+        );
       }
 
       const contentType = response.headers.get("content-type");
@@ -227,6 +305,10 @@ export const removeCartItem = createAsyncThunk(
 
       return { itemId, apiResponse: data };
     } catch (error) {
+      console.error(
+        `Error in removeCartItem for user ${userId}, item ${itemId}:`,
+        error
+      );
       return rejectWithValue(error.message);
     }
   }
@@ -246,10 +328,9 @@ export const clearCart = createAsyncThunk(
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error clearing cart! status: ${response.status}`);
       }
 
-      // Check if response has a JSON body
       const contentType = response.headers.get("content-type");
       let data;
       if (
@@ -259,12 +340,12 @@ export const clearCart = createAsyncThunk(
       ) {
         data = await response.json();
       } else {
-        // Return a default success response for 204 No Content or non-JSON responses
         data = { message: "Cart cleared successfully" };
       }
 
       return data;
     } catch (error) {
+      console.error(`Error in clearCart for user ${userId}:`, error);
       return rejectWithValue(error.message);
     }
   }
@@ -285,12 +366,18 @@ export const applyCoupon = createAsyncThunk(
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(
+          `HTTP error applying coupon! status: ${response.status}`
+        );
       }
 
       const data = await response.json();
       return data;
     } catch (error) {
+      console.error(
+        `Error in applyCoupon for user ${userId}, coupon ${couponCode}:`,
+        error
+      );
       return rejectWithValue(error.message);
     }
   }
@@ -316,7 +403,7 @@ const cartSlice = createSlice({
       state.products.forEach((item) => {
         total += item.price * item.quantity;
       });
-      state.totalAmount = total;
+      state.totalAmount = total - state.discount;
 
       if (total <= 200) {
         state.shippingCharge = 30;
@@ -350,6 +437,8 @@ const cartSlice = createSlice({
       .addCase(fetchCart.rejected, (state, action) => {
         state.status = "failed";
         state.error = action.payload || "Failed to fetch cart";
+        state.products = []; // Ensure empty cart on failure
+        cartSlice.caseReducers.calculateTotals(state);
       })
       .addCase(addItemToCart.pending, (state) => {
         state.status = "loading";

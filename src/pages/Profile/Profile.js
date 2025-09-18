@@ -23,10 +23,10 @@ const Profile = () => {
           message: "Please log in to view your profile",
         },
       });
-    } else if (status === "idle") {
+    } else {
       dispatch(fetchUserOrders({ userId: userInfo.id, token }));
     }
-  }, [dispatch, userInfo, token, status, navigate]);
+  }, [dispatch, userInfo, token, navigate]); // Removed status from dependencies
 
   // Filter orders based on selected filter type with exact ID matching, showing all if empty
   const filteredOrders = orders

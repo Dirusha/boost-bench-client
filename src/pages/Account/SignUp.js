@@ -22,6 +22,8 @@ import axios from "axios";
 
 const SignUp = () => {
   const dispatch = useDispatch();
+
+  // FIXED: Changed from state.authReducer to state.auth
   const {
     clientName,
     email,
@@ -36,7 +38,7 @@ const SignUp = () => {
     isValidationError,
     loading,
     checked,
-  } = useSelector((state) => state.authReducer);
+  } = useSelector((state) => state.auth); // <-- This was the fix
 
   // Email Validation
   const EmailValidation = (email) => {
