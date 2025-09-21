@@ -13,7 +13,6 @@
   }
 }
 
-/* ============= NavLink active Start here ============== */
 nav .active li {
   color: black;
   font-weight: 600;
@@ -22,7 +21,7 @@ nav .active li {
 
 @media screen and (max-width: 665px) {
   nav .active li {
-    color: white;
+    color: rgb(131, 126, 126);
     font-weight: 600;
     text-decoration: 1px underline white;
   }
@@ -31,4 +30,3 @@ nav .active li {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
-/* ============= NavLink active End here ================ */
